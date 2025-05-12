@@ -2,6 +2,15 @@
 let unityInstance = null;
 let isCameraReady = false;
 let gl = null;
+let isDetectionManagerReady = false;
+
+// Define the loaderUrl and config
+const loaderUrl = "Build/UnityLoader.js";  // Path to UnityLoader.js
+const config = {
+    dataUrl: "Build/ARCheck.data.unityweb",  // Path to the .data.unityweb file
+    frameworkUrl: "Build/ARCheck.wasm.framework.unityweb",  // Path to the framework .unityweb file
+    codeUrl: "Build/ARCheck.wasm",  // Path to the .wasm file
+};
 
 function cameraReady() {
     isCameraReady = true;
@@ -26,17 +35,13 @@ function startAFrameScene() {
     arScene.setAttribute("vr-mode-ui", "enabled: false");
     arScene.setAttribute("arjs", "sourceType: webcam; debugUIEnabled: false;");
 
-    // Add camera entity with transform syncing
     const cameraEntity = document.createElement('a-entity');
     cameraEntity.setAttribute('id', 'cameraRig');
     cameraEntity.setAttribute('camera', '');
     cameraEntity.setAttribute('look-controls', '');
     cameraEntity.setAttribute('cameratransform', '');
 
-    // Append to scene
     arScene.appendChild(cameraEntity);
-
-    // Inject into DOM
     document.body.appendChild(arScene);
 }
 
@@ -45,27 +50,32 @@ AFRAME.registerComponent('cameratransform', {
     tock: function (time, timeDelta) {
         let camtr = new THREE.Vector3();
         let camro = new THREE.Quaternion();
-        this.el.object3D.matrix.clone().decompose(camtr, camro, new THREE.Vector3());
+        let camsc = new THREE.Vector3();
+
+        this.el.object3D.matrix.clone().decompose(camtr, camro, camsc);
 
         const projection = this.el.components.camera.camera.projectionMatrix.clone();
-        const posCam = camtr.toArray();
-        const rotCam = camro.toArray();
-        const projCam = projection.elements;
+        const serializedProj = `${[...projection.elements]}`
+
+        const posCam = `${[...camtr.toArray()]}`
+        const rotCam = `${[...camro.toArray()]}`
 
         if (isCameraReady) {
-            unityInstance.SendMessage("Main Camera", "setProjection", JSON.stringify(projCam));
-            unityInstance.SendMessage("Main Camera", "setPosition", JSON.stringify(posCam));
-            unityInstance.SendMessage("Main Camera", "setRotation", JSON.stringify(rotCam));
+            unityInstance.SendMessage("Main Camera", "setProjection", serializedProj);
+            unityInstance.SendMessage("Main Camera", "setPosition", posCam);
+            unityInstance.SendMessage("Main Camera", "setRotation", rotCam);
 
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-            const unityCanvas = document.getElementById('unity-canvas');
+            // Ensure the canvas is available before using it
+            //const canvas = document.querySelector("#unity-canvas");
+            //if (canvas) {
+            //    //const w = window.innerWidth;
+            //    //const h = window.innerHeight;
+            //    //const ratio = canvas.height / h;
+            //    //const scaledW = w * ratio;
+            //    //const scaledH = h * ratio;
 
-            const ratio = unityCanvas.height / h;
-            const scaledW = w * ratio;
-            const scaledH = h * ratio;
-
-            unityInstance.SendMessage("Canvas", "setSize", `${scaledW},${scaledH}`);
+            //    //unityInstance.SendMessage("Canvas", "setSize", `${scaledW},${scaledH}`);
+            //}
         }
 
         if (gl != null) {
@@ -74,36 +84,60 @@ AFRAME.registerComponent('cameratransform', {
     }
 });
 
-// === Inject A-Frame Scene after Unity Loads ===
 window.addEventListener('load', () => {
     const meta = document.createElement("meta");
     meta.name = "viewport";
     meta.content = "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no";
     document.head.appendChild(meta);
+
+    // Get DOM elements for Unity and loading
+    const container = document.querySelector("#unity-container");
+    const canvas = document.querySelector("#unity-canvas"); // Ensure this is correct
+    const loadingBar = document.querySelector("#loadingBar");
+    const progressBarFull = document.querySelector("#progressBarFull");
+    const fullscreenButton = document.querySelector("#fullscreenButton");
+
+    if (!container || !canvas || !loadingBar || !progressBarFull || !fullscreenButton) {
+        console.error("Missing one or more required DOM elements!");
+        return; // Exit early if required elements are missing
+    }
+
+    // Add class names
     container.className = "unity-mobile";
     canvas.className = "unity-mobile";
 
+    // Show loading bar
     loadingBar.style.display = "block";
 
+    // Load UnityLoader.js
     const unityLoader = document.createElement("script");
-    unityLoader.src = loaderUrl;
+    unityLoader.src = "Build/UnityLoader.js";
 
     unityLoader.onload = () => {
-        createUnityInstance(canvas, config, (progress) => {
-            progressBarFull.style.width = `${progress * 100}%`;
-        }).then((instance) => {
-            unityInstance = instance;
+        unityInstance = UnityLoader.instantiate("unity-canvas", "Build/ARCheck.json", {
+            dataUrl: "Build/ARCheck.data.unityweb",
+            frameworkUrl: "Build/ARCheck.wasm.framework.unityweb",
+            codeUrl: "Build/ARCheck.wasm",
+            Module: {
+                onProgress: function (unityInstance, progress) {
+                    if (progressBarFull) {
+                        progressBarFull.style.width = `${progress * 100}%`;
+                    }
+                }
+            }
+        });
+
+        unityInstance.onload = () => {
             loadingBar.style.display = "none";
             fullscreenButton.onclick = () => unityInstance.SetFullscreen(1);
 
             // Start A-Frame after Unity is ready
             startAFrameScene();
 
-            // Optional: Call any Unity-ready functions here
             if (typeof cameraReady === "function") {
                 cameraReady();
             }
-        }).catch((message) => alert(message));
+        };
     };
 
     document.body.appendChild(unityLoader);
