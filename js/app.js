@@ -22,8 +22,8 @@ function startAFrameScene() {
     arScene.style.zIndex = "1";
     arScene.style.top = "0";
     arScene.style.left = "0";
-    arScene.style.width = "100vw";
-    arScene.style.height = "100vh";
+    arScene.style.width = "0vw";
+    arScene.style.height = "0vh";
 
     const cameraEntity = document.createElement('a-entity');
     cameraEntity.setAttribute('id', 'cameraRig');
